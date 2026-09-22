@@ -6,7 +6,8 @@
   var app = document.getElementById("app");
 
   var password = "";
-  var state = { questions: [], config: { moduleName: "", dureeMinutes: 10, pointsParQuestion: 0.25 } };
+  var state = { modules: [], questions: [] }; // questions: all modules together, each has .module
+  var selectedModule = "";
 
   function esc(s){
     var d = document.createElement("div");
@@ -62,15 +63,16 @@
       .then(function(r){ return r.json(); })
       .then(function(data){
         if (!data || data.error === "unauthorized"){ cb(false, "Mot de passe incorrect."); return; }
-        if (!data.questions){ cb(false, "Réponse inattendue du serveur."); return; }
-        state.questions = data.questions.map(function(q){
-          return { q: q.q || "", opts: {A: (q.opts&&q.opts.A)||"", B:(q.opts&&q.opts.B)||"", C:(q.opts&&q.opts.C)||"", D:(q.opts&&q.opts.D)||""}, correct: q.correct || "A" };
+        if (!data.questions || !data.modules){ cb(false, "Réponse inattendue du serveur."); return; }
+        state.modules = data.modules.map(function(m){
+          return { module: m.module, dureeMinutes: Number(m.dureeMinutes)||10, pointsParQuestion: Number(m.pointsParQuestion)||0.25, actif: m.actif !== false };
         });
-        state.config = {
-          moduleName: (data.config && data.config.moduleName) || "",
-          dureeMinutes: (data.config && Number(data.config.dureeMinutes)) || 10,
-          pointsParQuestion: (data.config && Number(data.config.pointsParQuestion)) || 0.25
-        };
+        state.questions = data.questions.map(function(q){
+          return { module: q.module || "", q: q.q || "", opts: {A:(q.opts&&q.opts.A)||"", B:(q.opts&&q.opts.B)||"", C:(q.opts&&q.opts.C)||"", D:(q.opts&&q.opts.D)||""}, correct: q.correct || "A" };
+        });
+        if (!selectedModule || !state.modules.some(function(m){ return m.module === selectedModule; })){
+          selectedModule = state.modules.length ? state.modules[0].module : "";
+        }
         cb(true);
       })
       .catch(function(){ cb(false, "Connexion au serveur impossible. Réessaie."); });
@@ -78,113 +80,194 @@
 
   function renderDashboard(){
     app.innerHTML =
-      '<div class="card admin-section" id="cfgSection">' +
-        '<h2>Réglages du module</h2>' +
-        '<p class="sublead">Nom affiché aux étudiants, durée du quiz, points par bonne réponse.</p>' +
-        '<div class="row2">' +
-          '<div class="field"><label for="cModule">Nom du module</label><input id="cModule" value="' + esc(state.config.moduleName) + '"></div>' +
-          '<div class="field"><label for="cMinutes">Durée (minutes)</label><input id="cMinutes" type="number" min="1" max="180" value="' + esc(state.config.dureeMinutes) + '"></div>' +
+      '<div class="card admin-section">' +
+        '<div class="admin-toolbar">' +
+          '<div><h2 style="margin-bottom:2px;">Modules / évaluations</h2><p class="sublead" style="margin:0;">Chaque module a ses propres questions, sa durée et ses points. Décoche "Actif" pour le retirer temporairement du site sans le supprimer.</p></div>' +
         '</div>' +
-        '<div class="field" style="max-width:220px;"><label for="cPoints">Points par bonne réponse</label><input id="cPoints" type="number" step="0.05" min="0" value="' + esc(state.config.pointsParQuestion) + '"></div>' +
-        '<button class="btn btn-primary" id="saveCfgBtn">Enregistrer les réglages</button>' +
+        '<div id="modList"></div>' +
+        '<div class="admin-toolbar" style="margin-top:4px;">' +
+          '<button class="btn" id="addModBtn">+ Ajouter un module</button>' +
+          '<button class="btn btn-primary" id="saveModBtn">Enregistrer les modules</button>' +
+        '</div>' +
       '</div>' +
 
       '<div class="card admin-section">' +
         '<div class="admin-toolbar">' +
-          '<div><h2 style="margin-bottom:2px;">Questions</h2><p class="sublead" style="margin:0;">' + state.questions.length + ' question(s) · marque la bonne réponse avec le rond à gauche de chaque proposition.</p></div>' +
+          '<div><h2 style="margin-bottom:2px;">Questions</h2><p class="sublead" style="margin:0;">Choisis le module à modifier ci-dessous.</p></div>' +
+          '<select id="modSelForQ" style="max-width:220px;"></select>' +
+        '</div>' +
+        '<div class="admin-toolbar">' +
+          '<div></div>' +
           '<button class="btn" id="addQBtn">+ Ajouter une question</button>' +
         '</div>' +
         '<div id="qList"></div>' +
-        '<button class="btn btn-primary" id="saveQBtn" style="margin-top:8px;">Enregistrer toutes les questions</button>' +
+        '<button class="btn btn-primary" id="saveQBtn" style="margin-top:8px;">Enregistrer les questions de ce module</button>' +
       '</div>';
 
+    renderModuleList();
+    renderModuleSelect();
     renderQuestionList();
 
-    document.getElementById("addQBtn").addEventListener("click", function(){
-      state.questions.push({q:"", opts:{A:"",B:"",C:"",D:""}, correct:"A"});
+    document.getElementById("addModBtn").addEventListener("click", function(){
+      state.modules.push({module:"", dureeMinutes:10, pointsParQuestion:0.25, actif:true});
+      renderModuleList();
+    });
+    document.getElementById("saveModBtn").addEventListener("click", saveModules);
+    document.getElementById("modSelForQ").addEventListener("change", function(ev){
+      selectedModule = ev.target.value;
       renderQuestionList();
     });
+    document.getElementById("addQBtn").addEventListener("click", function(){
+      if (!selectedModule){ toast("Ajoute d'abord un module."); return; }
+      state.questions.push({module:selectedModule, q:"", opts:{A:"",B:"",C:"",D:""}, correct:"A"});
+      renderQuestionList();
+    });
+    document.getElementById("saveQBtn").addEventListener("click", saveQuestions);
+  }
 
-    document.getElementById("saveCfgBtn").addEventListener("click", function(){
-      var btn = document.getElementById("saveCfgBtn");
-      var cfg = {
-        moduleName: document.getElementById("cModule").value.trim() || "Quiz",
-        dureeMinutes: Number(document.getElementById("cMinutes").value) || 10,
-        pointsParQuestion: Number(document.getElementById("cPoints").value) || 0.25
-      };
-      btn.disabled = true; btn.textContent = "Enregistrement…";
-      fetch(SCRIPT_URL, {
-        method:"POST", mode:"no-cors", headers:{"Content-Type":"text/plain;charset=utf-8"},
-        body: JSON.stringify({action:"saveConfig", password: password, config: cfg})
-      }).then(function(){
-        state.config = cfg;
-        btn.disabled = false; btn.textContent = "Enregistrer les réglages";
-        toast("Réglages enregistrés ✓");
-      }).catch(function(){
-        btn.disabled = false; btn.textContent = "Enregistrer les réglages";
-        toast("Échec de l'enregistrement");
+  function renderModuleList(){
+    var el = document.getElementById("modList");
+    if (!el) return;
+    el.innerHTML = state.modules.map(function(m, idx){
+      return '<div class="qedit" data-idx="' + idx + '">' +
+        '<div class="row2" style="margin-bottom:8px;">' +
+          '<div class="field" style="margin:0;"><label>Nom du module</label>' +
+            '<input type="text" class="modName" data-idx="' + idx + '" value="' + esc(m.module) + '" placeholder="ex : Python"' + (m.module ? ' readonly' : '') + '></div>' +
+          '<div class="row2" style="margin:0;">' +
+            '<div class="field" style="margin:0;"><label>Durée (min)</label><input type="number" class="modDuree" data-idx="' + idx + '" min="1" max="180" value="' + esc(m.dureeMinutes) + '"></div>' +
+            '<div class="field" style="margin:0;"><label>Pts/question</label><input type="number" class="modPoints" data-idx="' + idx + '" step="0.05" min="0" value="' + esc(m.pointsParQuestion) + '"></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="qedit-foot">' +
+          '<label style="display:flex;align-items:center;gap:6px;font-size:13px;"><input type="checkbox" class="modActif" data-idx="' + idx + '"' + (m.actif ? ' checked' : '') + '> Actif (visible par les étudiants)</label>' +
+          '<button class="icon-btn delModBtn" data-idx="' + idx + '">Supprimer</button>' +
+        '</div>' +
+      '</div>';
+    }).join("") || '<p class="sublead">Aucun module. Clique sur « + Ajouter un module ».</p>';
+
+    el.querySelectorAll(".modName").forEach(function(input){
+      input.addEventListener("input", function(){ state.modules[Number(input.getAttribute("data-idx"))].module = input.value; });
+    });
+    el.querySelectorAll(".modDuree").forEach(function(input){
+      input.addEventListener("input", function(){ state.modules[Number(input.getAttribute("data-idx"))].dureeMinutes = Number(input.value)||10; });
+    });
+    el.querySelectorAll(".modPoints").forEach(function(input){
+      input.addEventListener("input", function(){ state.modules[Number(input.getAttribute("data-idx"))].pointsParQuestion = Number(input.value)||0.25; });
+    });
+    el.querySelectorAll(".modActif").forEach(function(input){
+      input.addEventListener("change", function(){ state.modules[Number(input.getAttribute("data-idx"))].actif = input.checked; });
+    });
+    el.querySelectorAll(".delModBtn").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var idx = Number(btn.getAttribute("data-idx"));
+        var removed = state.modules[idx];
+        if (removed.module && state.questions.some(function(q){ return q.module === removed.module; })){
+          if (!confirm('Ce module contient des questions. Les supprimer aussi ? (Annuler pour juste le décocher "Actif" à la place)')){
+            return;
+          }
+          state.questions = state.questions.filter(function(q){ return q.module !== removed.module; });
+        }
+        state.modules.splice(idx, 1);
+        renderModuleList();
+        renderModuleSelect();
+        renderQuestionList();
       });
     });
+  }
 
-    document.getElementById("saveQBtn").addEventListener("click", saveQuestions);
+  function renderModuleSelect(){
+    var sel = document.getElementById("modSelForQ");
+    if (!sel) return;
+    var names = state.modules.map(function(m){ return m.module; }).filter(Boolean);
+    sel.innerHTML = names.map(function(n){ return '<option value="' + esc(n) + '"' + (n === selectedModule ? " selected" : "") + '>' + esc(n) + '</option>'; }).join("") || '<option value="">Aucun module</option>';
   }
 
   function renderQuestionList(){
     var listEl = document.getElementById("qList");
     if (!listEl) return;
-    listEl.innerHTML = state.questions.map(function(item, idx){
+    var qCountEl = document.querySelector(".admin-section:nth-of-type(2) .sublead");
+    var moduleQs = state.questions.map(function(item, globalIdx){ return {item:item, globalIdx:globalIdx}; })
+      .filter(function(x){ return x.item.module === selectedModule; });
+
+    listEl.innerHTML = moduleQs.map(function(entry, i){
+      var item = entry.item;
+      var globalIdx = entry.globalIdx;
       var letters = ["A","B","C","D"];
       var optsHtml = letters.map(function(l){
         return '<div class="qedit-opt">' +
-          '<input type="radio" name="correct' + idx + '" value="' + l + '"' + (item.correct === l ? " checked" : "") + ' data-qidx="' + idx + '" class="correctRadio">' +
+          '<input type="radio" name="correct' + globalIdx + '" value="' + l + '"' + (item.correct === l ? " checked" : "") + ' data-gidx="' + globalIdx + '" class="correctRadio">' +
           '<span class="optletter">' + l + '</span>' +
-          '<input type="text" placeholder="Proposition ' + l + (l === "D" ? " (optionnel)" : "") + '" value="' + esc(item.opts[l]) + '" data-qidx="' + idx + '" data-letter="' + l + '" class="optInput">' +
+          '<input type="text" placeholder="Proposition ' + l + (l === "D" ? " (optionnel)" : "") + '" value="' + esc(item.opts[l]) + '" data-gidx="' + globalIdx + '" data-letter="' + l + '" class="optInput">' +
         '</div>';
       }).join("");
-      return '<div class="qedit" data-idx="' + idx + '">' +
+      return '<div class="qedit" data-gidx="' + globalIdx + '">' +
         '<div class="qedit-top">' +
-          '<div class="qnum">' + (idx+1) + '</div>' +
-          '<textarea class="qtextInput" data-qidx="' + idx + '" placeholder="Texte de la question">' + esc(item.q) + '</textarea>' +
+          '<div class="qnum">' + (i+1) + '</div>' +
+          '<textarea class="qtextInput" data-gidx="' + globalIdx + '" placeholder="Texte de la question">' + esc(item.q) + '</textarea>' +
         '</div>' +
         '<div class="qedit-opts">' + optsHtml + '</div>' +
         '<div class="qedit-foot">' +
           '<span class="qedit-hint">Bonne réponse : ' + item.correct + '</span>' +
-          '<button class="icon-btn delQBtn" data-qidx="' + idx + '">Supprimer</button>' +
+          '<button class="icon-btn delQBtn" data-gidx="' + globalIdx + '">Supprimer</button>' +
         '</div>' +
       '</div>';
-    }).join("") || '<p class="sublead">Aucune question. Clique sur « + Ajouter une question ».</p>';
+    }).join("") || '<p class="sublead">Aucune question pour ce module. Clique sur « + Ajouter une question ».</p>';
 
     listEl.querySelectorAll(".qtextInput").forEach(function(el){
-      el.addEventListener("input", function(){
-        state.questions[Number(el.getAttribute("data-qidx"))].q = el.value;
-      });
+      el.addEventListener("input", function(){ state.questions[Number(el.getAttribute("data-gidx"))].q = el.value; });
     });
     listEl.querySelectorAll(".optInput").forEach(function(el){
       el.addEventListener("input", function(){
-        var idx = Number(el.getAttribute("data-qidx"));
+        var gidx = Number(el.getAttribute("data-gidx"));
         var letter = el.getAttribute("data-letter");
-        state.questions[idx].opts[letter] = el.value;
+        state.questions[gidx].opts[letter] = el.value;
       });
     });
     listEl.querySelectorAll(".correctRadio").forEach(function(el){
       el.addEventListener("change", function(){
-        var idx = Number(el.getAttribute("data-qidx"));
-        state.questions[idx].correct = el.value;
+        state.questions[Number(el.getAttribute("data-gidx"))].correct = el.value;
         renderQuestionList();
       });
     });
     listEl.querySelectorAll(".delQBtn").forEach(function(el){
       el.addEventListener("click", function(){
-        var idx = Number(el.getAttribute("data-qidx"));
-        state.questions.splice(idx, 1);
+        state.questions.splice(Number(el.getAttribute("data-gidx")), 1);
         renderQuestionList();
       });
     });
   }
 
+  function saveModules(){
+    var btn = document.getElementById("saveModBtn");
+    var cleaned = state.modules
+      .map(function(m){ return { module: (m.module||"").trim(), dureeMinutes: Number(m.dureeMinutes)||10, pointsParQuestion: Number(m.pointsParQuestion)||0.25, actif: !!m.actif }; })
+      .filter(function(m){ return m.module; });
+    var names = cleaned.map(function(m){ return m.module; });
+    var dupes = names.filter(function(n, i){ return names.indexOf(n) !== i; });
+    if (dupes.length){
+      toast("Deux modules ne peuvent pas avoir le même nom (" + dupes[0] + ").");
+      return;
+    }
+    btn.disabled = true; btn.textContent = "Enregistrement…";
+    fetch(SCRIPT_URL, {
+      method:"POST", mode:"no-cors", headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body: JSON.stringify({action:"saveModules", password: password, modules: cleaned})
+    }).then(function(){
+      state.modules = cleaned;
+      btn.disabled = false; btn.textContent = "Enregistrer les modules";
+      toast("Modules enregistrés ✓");
+      renderModuleSelect();
+    }).catch(function(){
+      btn.disabled = false; btn.textContent = "Enregistrer les modules";
+      toast("Échec de l'enregistrement");
+    });
+  }
+
   function saveQuestions(){
+    if (!selectedModule){ toast("Choisis ou crée un module d'abord."); return; }
     var btn = document.getElementById("saveQBtn");
     var cleaned = state.questions
+      .filter(function(item){ return item.module === selectedModule; })
       .filter(function(item){ return item.q && item.q.trim() && item.opts.A && item.opts.A.trim() && item.opts.B && item.opts.B.trim(); })
       .map(function(item){
         return { q: item.q.trim(), opts: {A:item.opts.A.trim(), B:item.opts.B.trim(), C:(item.opts.C||"").trim(), D:(item.opts.D||"").trim()}, correct: item.correct };
@@ -196,14 +279,15 @@
     btn.disabled = true; btn.textContent = "Enregistrement…";
     fetch(SCRIPT_URL, {
       method:"POST", mode:"no-cors", headers:{"Content-Type":"text/plain;charset=utf-8"},
-      body: JSON.stringify({action:"saveQuestions", password: password, questions: cleaned})
+      body: JSON.stringify({action:"saveQuestions", password: password, module: selectedModule, questions: cleaned})
     }).then(function(){
-      state.questions = cleaned;
-      btn.disabled = false; btn.textContent = "Enregistrer toutes les questions";
-      toast(cleaned.length + " question(s) enregistrée(s) ✓ — en ligne immédiatement");
-      renderDashboard();
+      state.questions = state.questions.filter(function(q){ return q.module !== selectedModule; })
+        .concat(cleaned.map(function(c){ return {module:selectedModule, q:c.q, opts:c.opts, correct:c.correct}; }));
+      btn.disabled = false; btn.textContent = "Enregistrer les questions de ce module";
+      toast(cleaned.length + " question(s) enregistrée(s) pour « " + selectedModule + " » ✓");
+      renderQuestionList();
     }).catch(function(){
-      btn.disabled = false; btn.textContent = "Enregistrer toutes les questions";
+      btn.disabled = false; btn.textContent = "Enregistrer les questions de ce module";
       toast("Échec de l'enregistrement");
     });
   }

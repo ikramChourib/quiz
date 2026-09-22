@@ -3,7 +3,7 @@
 // ============================================================
 // Tout le reste (nom du module, durée, questions, réponses) se gère
 // maintenant depuis admin.html, une fois ce lien renseigné.
-var QUIZ_CONFIG = {
+const QUIZ_CONFIG = {
   // URL du Google Apps Script (Web App). Voir README.md.
-  googleScriptUrl: "https://script.google.com/macros/s/AKfycbzQ1PEEGQNJBwQeh32Ehxo2B_yWHKF2Y-SDc94rKI5h-16KR-xr1qgW3u-jz03LhqRk/exec"
+  googleScriptUrl: "https://script.google.com/macros/s/AKfycbxqhIlrV6Kqndjd8hNcaXeUezSvLzaC4P0RCLxi16hQ69uUiOF8hNlzDwkFX8ScbQE/exec"
 };

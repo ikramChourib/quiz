@@ -6,8 +6,9 @@
 
   var app = document.getElementById("app");
 
+  var MODULES = [];       // [{module, dureeMinutes, pointsParQuestion}]
   var QUESTIONS = [];
-  var MODULE_NAME = "Quiz";
+  var MODULE_NAME = "";
   var MINUTES = 10;
   var POINTS_PER_Q = 0.25;
   var TOTAL_POINTS = 0;
@@ -24,8 +25,8 @@
     return d.innerHTML;
   }
 
-  function storageKey(id){
-    return "quizDone_" + MODULE_NAME + "_" + id;
+  function storageKey(module, id){
+    return "quizDone_" + module + "_" + id;
   }
 
   function fmtTime(sec){
@@ -53,30 +54,24 @@
       '<button class="btn btn-primary" id="retryBtn" style="width:100%;">Réessayer</button>' +
     '</div></div>';
     var b = document.getElementById("retryBtn");
-    if (b) b.addEventListener("click", loadAndStart);
+    if (b) b.addEventListener("click", loadModulesAndStart);
   }
 
-  function loadAndStart(){
+  function loadModulesAndStart(){
     renderLoading();
     if (!SCRIPT_URL || SCRIPT_URL.indexOf("http") !== 0){
       renderConfigError();
       return;
     }
-    fetch(SCRIPT_URL + "?action=questions", {method:"GET"})
+    fetch(SCRIPT_URL + "?action=modules", {method:"GET"})
       .then(function(r){ return r.json(); })
       .then(function(data){
-        if (!data || !data.questions){ renderLoadError(); return; }
-        QUESTIONS = data.questions || [];
-        var cfg = data.config || {};
-        MODULE_NAME = cfg.moduleName || "Quiz";
-        MINUTES = Number(cfg.dureeMinutes) || 10;
-        POINTS_PER_Q = Number(cfg.pointsParQuestion) || 0.25;
-        TOTAL_POINTS = Math.round(QUESTIONS.length * POINTS_PER_Q * 100) / 100;
-        document.getElementById("moduleName").textContent = MODULE_NAME;
-        if (!QUESTIONS.length){
+        if (!data || !data.modules){ renderLoadError(); return; }
+        MODULES = data.modules || [];
+        if (!MODULES.length){
           app.innerHTML = '<div class="register-wrap"><div class="card register-card">' +
-            '<h1>Aucune question configurée</h1>' +
-            '<p class="lead">L\'enseignant n\'a pas encore ajouté de questions pour ce module.</p>' +
+            '<h1>Aucune évaluation disponible</h1>' +
+            '<p class="lead">L\'enseignant n\'a pas encore configuré de module. Réessaie plus tard.</p>' +
           '</div></div>';
           return;
         }
@@ -87,12 +82,24 @@
 
   function renderRegister(opts){
     opts = opts || {};
+    var moduleFieldHtml;
+    if (MODULES.length > 1){
+      moduleFieldHtml = '<div class="field"><label for="fModuleSel">Module / évaluation</label>' +
+        '<select id="fModuleSel" required>' +
+          '<option value="">Choisir…</option>' +
+          MODULES.map(function(m){ return '<option value="' + esc(m.module) + '">' + esc(m.module) + '</option>'; }).join("") +
+        '</select></div>';
+    } else {
+      moduleFieldHtml = '<input type="hidden" id="fModuleSel" value="' + esc(MODULES[0].module) + '">';
+    }
+
     app.innerHTML =
       '<div class="register-wrap"><div class="card register-card">' +
-        '<h1>Quiz — ' + esc(MODULE_NAME) + '</h1>' +
-        '<p class="lead">' + QUESTIONS.length + ' questions · ' + MINUTES + ' minutes · ' + POINTS_PER_Q.toFixed(2).replace(".",",") + ' pt par bonne réponse (note sur ' + TOTAL_POINTS.toFixed(2).replace(".",",") + ')</p>' +
+        '<h1>Quiz' + (MODULES.length === 1 ? ' — ' + esc(MODULES[0].module) : '') + '</h1>' +
+        '<p class="lead">' + (MODULES.length > 1 ? "Choisis ton évaluation, puis remplis tes informations." : (MODULES[0].dureeMinutes + " minutes · " + Number(MODULES[0].pointsParQuestion).toFixed(2).replace(".",",") + " pt par bonne réponse")) + '</p>' +
         (opts.error ? '<div class="error-box">' + esc(opts.error) + '</div>' : '') +
         '<form id="regForm">' +
+          moduleFieldHtml +
           '<div class="field"><label for="fNom">Nom</label><input id="fNom" name="nom" autocomplete="family-name" required></div>' +
           '<div class="field"><label for="fPrenom">Prénom</label><input id="fPrenom" name="prenom" autocomplete="given-name" required></div>' +
           '<div class="row2">' +
@@ -105,31 +112,52 @@
             '</div>' +
             '<div class="field"><label for="fId">Identifiant</label><input id="fId" name="identifiant" required placeholder="ex : e2451"></div>' +
           '</div>' +
-          '<div class="hint" style="margin:-8px 0 18px;">Un seul essai par identifiant sur cet appareil.</div>' +
+          '<div class="hint" style="margin:-8px 0 18px;">Un seul essai par identifiant et par module, sur cet appareil.</div>' +
           '<button type="submit" class="btn btn-primary" style="width:100%;" id="startBtn">Commencer le quiz</button>' +
         '</form>' +
       '</div></div>';
 
     document.getElementById("regForm").addEventListener("submit", function(ev){
       ev.preventDefault();
+      var moduleSel = document.getElementById("fModuleSel").value;
       var nom = document.getElementById("fNom").value.trim();
       var prenom = document.getElementById("fPrenom").value.trim();
       var classe = document.getElementById("fClasse").value;
       var identifiant = document.getElementById("fId").value.trim();
-      if (!nom || !prenom || !classe || !identifiant){ return; }
+      if (!moduleSel || !nom || !prenom || !classe || !identifiant){ return; }
 
       var already = false;
-      try{ already = !!localStorage.getItem(storageKey(identifiant)); }catch(e){}
+      try{ already = !!localStorage.getItem(storageKey(moduleSel, identifiant)); }catch(e){}
       if (already){
-        renderRegister({error:"Tu as déjà répondu à ce quiz avec cet identifiant sur cet appareil."});
+        renderRegister({error:"Tu as déjà répondu à ce module avec cet identifiant sur cet appareil."});
         return;
       }
 
-      reg = {nom:nom, prenom:prenom, classe:classe, identifiant:identifiant};
-      answers = {};
-      secondsLeft = MINUTES * 60;
-      renderQuiz();
-      startTimer();
+      reg = {nom:nom, prenom:prenom, classe:classe, identifiant:identifiant, module:moduleSel};
+      var startBtn = document.getElementById("startBtn");
+      startBtn.disabled = true; startBtn.textContent = "Chargement du quiz…";
+
+      fetch(SCRIPT_URL + "?action=questions&module=" + encodeURIComponent(moduleSel), {method:"GET"})
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+          if (!data || !data.questions || !data.questions.length){
+            renderRegister({error:"Aucune question disponible pour ce module pour le moment."});
+            return;
+          }
+          QUESTIONS = data.questions;
+          var cfg = data.config || {};
+          MODULE_NAME = moduleSel;
+          MINUTES = Number(cfg.dureeMinutes) || 10;
+          POINTS_PER_Q = Number(cfg.pointsParQuestion) || 0.25;
+          TOTAL_POINTS = Math.round(QUESTIONS.length * POINTS_PER_Q * 100) / 100;
+          answers = {};
+          secondsLeft = MINUTES * 60;
+          renderQuiz();
+          startTimer();
+        })
+        .catch(function(){
+          renderRegister({error:"Impossible de charger les questions. Réessaie."});
+        });
     });
   }
 
@@ -218,14 +246,14 @@
     // correction stockée dans le Sheet — jamais visible du navigateur.
     var payload = {
       action: "submit",
-      module: MODULE_NAME,
+      module: reg.module,
       nom: reg.nom, prenom: reg.prenom, classe: reg.classe, identifiant: reg.identifiant,
       auto: !!auto,
       reponses: answers,
       horodatage: new Date().toISOString()
     };
 
-    try{ localStorage.setItem(storageKey(reg.identifiant), "1"); }catch(e){}
+    try{ localStorage.setItem(storageKey(reg.module, reg.identifiant), "1"); }catch(e){}
 
     var finish = function(){ submitting = false; renderDone(); };
 
@@ -246,5 +274,5 @@
       '</div></div>';
   }
 
-  loadAndStart();
+  loadModulesAndStart();
 })();

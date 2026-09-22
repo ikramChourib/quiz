@@ -17,7 +17,7 @@
 }
 @media (prefers-color-scheme: dark){
   :root{
-    --bg:#F4F6FC; --surface:#131834; --surface-2:#1B2143; --ink:#ECEFFB; --ink-dim:#A6ACCC;
+    --bg:#0A0D1C; --surface:#131834; --surface-2:#1B2143; --ink:#ECEFFB; --ink-dim:#A6ACCC;
     --border:#2A3160; --accent:#7C97FF; --accent-ink:#0A0D1C; --accent-soft:#1D2550;
     --good:#3FCE9B; --good-soft:#123027; --bad:#FF8078; --bad-soft:#3A1614; --warn:#F5B94D;
     --shadow:0 1px 2px rgba(0,0,0,.3), 0 12px 28px -14px rgba(0,0,0,.6);
