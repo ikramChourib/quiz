@@ -5,5 +5,5 @@
 // maintenant depuis admin.html, une fois ce lien renseigné.
 const QUIZ_CONFIG = {
   // URL du Google Apps Script (Web App). Voir README.md.
-  googleScriptUrl: "https://script.google.com/macros/s/AKfycbxqhIlrV6Kqndjd8hNcaXeUezSvLzaC4P0RCLxi16hQ69uUiOF8hNlzDwkFX8ScbQE/exec"
+  googleScriptUrl: "https://script.google.com/macros/s/AKfycbxuAW0g4oCxptXUfUiX0J7ap7-lsAc9hN22eW31jprhdUjWA4YMfza_J1k1xMPkJa_Q/exec"
 };
